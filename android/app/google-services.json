@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "638748183687",
+    "project_id": "ring-pappa",
+    "storage_bucket": "ring-pappa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:638748183687:android:badaa355d36bd55441fc22",
+        "android_client_info": {
+          "package_name": "com.ringpappanative"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXWQyLL3ewBNuDTSdJx8vKsRsruQc5hkc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
