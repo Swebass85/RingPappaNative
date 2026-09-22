@@ -43,6 +43,9 @@ function App() {
   const [localStream, setLocalStream] =
     useState<MediaStream | null>(null);
 
+  const [remoteStream, setRemoteStream] =
+    useState<MediaStream | null>(null);
+
   const [cameraStarted, setCameraStarted] =
     useState(false);
 
@@ -59,6 +62,9 @@ function App() {
     useRef<RTCPeerConnection | null>(null);
 
   const localStreamRef =
+    useRef<MediaStream | null>(null);
+
+  const remoteStreamRef =
     useRef<MediaStream | null>(null);
 
   const callIdRef =
@@ -117,13 +123,7 @@ function App() {
   }, []);
 
   /*
-   * Cleanup ONLY when the entire App component
-   * actually unmounts.
-   *
-   * IMPORTANT:
-   * Do not depend on localStream here.
-   * Otherwise changing localStream can close
-   * the active WebRTC peer connection.
+   * Cleanup only when the whole App unmounts.
    */
   useEffect(() => {
     return () => {
@@ -148,6 +148,14 @@ function App() {
         });
 
       localStreamRef.current = null;
+
+      remoteStreamRef.current
+        ?.getTracks()
+        .forEach(track => {
+          track.stop();
+        });
+
+      remoteStreamRef.current = null;
     };
   }, []);
 
@@ -260,6 +268,17 @@ function App() {
     setCameraStarted(false);
   };
 
+  const stopRemoteMedia = () => {
+    remoteStreamRef.current
+      ?.getTracks()
+      .forEach(track => {
+        track.stop();
+      });
+
+    remoteStreamRef.current = null;
+    setRemoteStream(null);
+  };
+
   const stopCall = async () => {
     console.log(
       'Stopping call...',
@@ -286,6 +305,7 @@ function App() {
 
     callIdRef.current = null;
 
+    stopRemoteMedia();
     stopLocalMedia();
 
     setCallStatus('');
@@ -349,6 +369,8 @@ function App() {
       unsubscribeAnswerCandidatesRef.current =
         null;
 
+      stopRemoteMedia();
+
       setCallStatus(
         'Startar samtal...',
       );
@@ -391,7 +413,7 @@ function App() {
       );
 
       /*
-       * Create the WebRTC connection.
+       * Create WebRTC connection.
        */
       const peerConnection =
         new RTCPeerConnection({
@@ -411,7 +433,50 @@ function App() {
       );
 
       /*
-       * Useful connection-state logging.
+       * Receive Dad's camera + microphone.
+       */
+      peerConnection.ontrack =
+        event => {
+          console.log(
+            'Remote track received from Dad:',
+            event.track.kind,
+          );
+
+          let dadStream =
+            remoteStreamRef.current;
+
+          if (!dadStream) {
+            dadStream =
+              new MediaStream();
+
+            remoteStreamRef.current =
+              dadStream;
+          }
+
+          const alreadyAdded =
+            dadStream
+              .getTracks()
+              .some(
+                track =>
+                  track.id ===
+                  event.track.id,
+              );
+
+          if (!alreadyAdded) {
+            dadStream.addTrack(
+              event.track,
+            );
+          }
+
+          setRemoteStream(
+            new MediaStream(
+              dadStream.getTracks(),
+            ),
+          );
+        };
+
+      /*
+       * Connection state logging.
        */
       peerConnection.onconnectionstatechange =
         () => {
@@ -458,8 +523,7 @@ function App() {
         };
 
       /*
-       * Add daughter's camera + microphone
-       * to the WebRTC connection.
+       * Add daughter's camera + microphone.
        */
       stream
         .getTracks()
@@ -475,15 +539,22 @@ function App() {
           );
         });
 
-      const db = getFirestore();
+      const db =
+        getFirestore();
 
       const callReference =
-        doc(collection(db, 'calls'));
+        doc(
+          collection(
+            db,
+            'calls',
+          ),
+        );
 
       const callId =
         callReference.id;
 
-      callIdRef.current = callId;
+      callIdRef.current =
+        callId;
 
       console.log(
         'Generated call ID:',
@@ -553,7 +624,7 @@ function App() {
       );
 
       /*
-       * Create Firestore call document.
+       * Create Firestore call.
        */
       await setDoc(
         callReference,
@@ -584,7 +655,7 @@ function App() {
       );
 
       /*
-       * Send Dad's push notification.
+       * Send Dad's notification.
        */
       try {
         await sendCallNotification(
@@ -759,17 +830,20 @@ function App() {
         'Kunde inte starta samtalet',
       );
 
+      stopRemoteMedia();
       stopLocalMedia();
     }
   };
 
   /*
-   * Active call screen.
+   * Active video call screen.
    *
-   * For this test we continue showing the
-   * daughter's local camera full-screen.
-   * Once signaling works, we'll add Dad's
-   * remote stream.
+   * Waiting:
+   * Daughter is full-screen.
+   *
+   * Connected:
+   * Dad is full-screen.
+   * Daughter is picture-in-picture.
    */
   if (
     cameraStarted &&
@@ -783,59 +857,91 @@ function App() {
       >
         <StatusBar hidden />
 
-        <RTCView
-          streamURL={
-            localStream.toURL()
-          }
-          style={styles.video}
-          objectFit="cover"
-          mirror
-        />
+        {remoteStream ? (
+          <>
+            <RTCView
+              streamURL={
+                remoteStream.toURL()
+              }
+              style={styles.video}
+              objectFit="cover"
+            />
+
+            <View
+              style={
+                styles.localPreviewContainer
+              }
+            >
+              <RTCView
+                streamURL={
+                  localStream.toURL()
+                }
+                style={
+                  styles.localPreview
+                }
+                objectFit="cover"
+                mirror
+              />
+            </View>
+          </>
+        ) : (
+          <RTCView
+            streamURL={
+              localStream.toURL()
+            }
+            style={styles.video}
+            objectFit="cover"
+            mirror
+          />
+        )}
 
         <View
           style={
-            styles.videoOverlay
+            styles.callHeader
           }
         >
-          <View>
-            <Text
-              style={
-                styles.callingText
-              }
-            >
-              PAPPA ❤️
-            </Text>
-
-            <Text
-              style={
-                styles.callStatus
-              }
-            >
-              {callStatus}
-            </Text>
-          </View>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.endButton,
-              pressed &&
-                styles.endButtonPressed,
-            ]}
-            onPress={stopCall}
+          <Text
+            style={
+              styles.callingText
+            }
           >
-            <Text
-              style={
-                styles.endButtonIcon
-              }
-            >
-              ✕
-            </Text>
-          </Pressable>
+            PAPPA ❤️
+          </Text>
+
+          <Text
+            style={
+              styles.callStatus
+            }
+          >
+            {callStatus}
+          </Text>
         </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.endButton,
+            styles.endButtonPosition,
+
+            pressed &&
+              styles.endButtonPressed,
+          ]}
+          onPress={stopCall}
+        >
+          <Text
+            style={
+              styles.endButtonIcon
+            }
+          >
+            ✕
+          </Text>
+        </Pressable>
       </View>
     );
   }
 
+  /*
+   * Home screen.
+   */
   return (
     <SafeAreaView
       style={styles.container}
@@ -847,11 +953,15 @@ function App() {
       <View
         style={styles.content}
       >
-        <Text style={styles.emoji}>
+        <Text
+          style={styles.emoji}
+        >
           👨‍👧
         </Text>
 
-        <Text style={styles.title}>
+        <Text
+          style={styles.title}
+        >
           PAPPA ❤️
         </Text>
 
@@ -869,7 +979,9 @@ function App() {
           ]}
           onPress={startCall}
         >
-          <Text style={styles.camera}>
+          <Text
+            style={styles.camera}
+          >
             📹
           </Text>
 
@@ -1002,15 +1114,14 @@ const styles =
       flex: 1,
     },
 
-    videoOverlay: {
+    /*
+     * PAPPA + connection status.
+     */
+    callHeader: {
       position: 'absolute',
       top: 30,
       left: 20,
-      right: 20,
-      flexDirection: 'row',
-      justifyContent:
-        'space-between',
-      alignItems: 'center',
+      zIndex: 20,
     },
 
     callingText: {
@@ -1026,6 +1137,34 @@ const styles =
       marginTop: 5,
     },
 
+    /*
+     * Daughter's small camera preview.
+     */
+    localPreviewContainer: {
+      position: 'absolute',
+      top: 25,
+      right: 20,
+      width: 150,
+      height: 200,
+      borderRadius: 20,
+      overflow: 'hidden',
+      backgroundColor:
+        '#222222',
+      borderWidth: 3,
+      borderColor:
+        '#ffffff',
+      elevation: 10,
+      zIndex: 30,
+    },
+
+    localPreview: {
+      width: '100%',
+      height: '100%',
+    },
+
+    /*
+     * Hang-up button.
+     */
     endButton: {
       width: 70,
       height: 70,
@@ -1035,6 +1174,14 @@ const styles =
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 8,
+    },
+
+    endButtonPosition: {
+      position: 'absolute',
+      bottom: 30,
+      left: '50%',
+      marginLeft: -35,
+      zIndex: 40,
     },
 
     endButtonPressed: {
